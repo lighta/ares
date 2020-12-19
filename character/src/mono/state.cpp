@@ -4,47 +4,70 @@
 #include <ares/network>
 
 #include "../server.hpp"
-#include "packet_handlers.hpp"
 
-ares::character::mono::state::state(std::shared_ptr<spdlog::logger> log, server& serv, session& sess) :
-  log_(log),
+ares::character::mono::state::state(character::server& serv, session& sess) :
   server_(serv),
   session_(sess) {
   }
 
-void ares::character::mono::state::defuse_asio() {
+ares::character::mono::state::~state() {
+  SPDLOG_TRACE(log(), "Destructing mono state for session {}", session_.id());
 }
 
-void ares::character::mono::state::on_open() {
-  SPDLOG_TRACE(log_, "mono::state on_open");
-}
-
-void ares::character::mono::state::before_close() {
-  SPDLOG_TRACE(log_, "mono::state before_close");
+void ares::character::mono::state::on_connect() {
 }
 
 void ares::character::mono::state::on_connection_reset() {
-  SPDLOG_TRACE(log_, "mono::state on_connection_reset");
-}
-
-void ares::character::mono::state::on_eof() {
-  SPDLOG_TRACE(log_, "mono::state on_eof");
-}
-
-void ares::character::mono::state::on_socket_error() {
-  SPDLOG_TRACE(log_, "mono::state on_socket_error");
+  session_.close_abruptly();
 }
 
 void ares::character::mono::state::on_operation_aborted() {
-  SPDLOG_TRACE(log_, "mono::state on_operation_aborted");
+  session_.close_abruptly();
 }
 
-size_t ares::character::mono::state::dispatch(const uint16_t PacketType) {
-  SPDLOG_TRACE(log_, "mono::state::dispatch() switching on PacketType = {0:#x}", PacketType);
-  switch (PacketType) {
-    ARES_DISPATCH_PACKET_CASE(CH_ENTER);
-    ARES_DISPATCH_PACKET_CASE(ATHENA_ZH_LOGIN_REQ);
+void ares::character::mono::state::on_eof() {
+  session_.close_abruptly();
+}
+
+void ares::character::mono::state::on_socket_error() {
+  session_.close_abruptly();
+}
+
+void ares::character::mono::state::defuse_asio() {
+}
+
+auto ares::character::mono::state::packet_sizes(const uint16_t packet_id) -> std::tuple<size_t, size_t, size_t> {
+  SPDLOG_TRACE(log(), "mono::state::allocate {:#x}", packet_id);
+  switch (packet_id) {
+    ARES_PACKET_SIZES_CASE(CH_ENTER);
+    ARES_PACKET_SIZES_CASE(ARES_ZH_LOGIN_REQ);
+  default:
+    {
+      log()->error("Unexpected packet_id {:#x} for mono session while getting packet sizes", packet_id);
+      return std::tuple<size_t, size_t, size_t>(0, 0, 0);
+    }
   }
-  log_->error("Unexpected PacketType {0:#x} for mono::state session", PacketType);
-  throw ares::network::terminate_session();
+}
+
+void ares::character::mono::state::dispatch_packet(std::shared_ptr<std::byte[]> buf) {
+  uint16_t* packet_id = reinterpret_cast<uint16_t*>(buf.get());
+  SPDLOG_TRACE(log(), "mono::state::dispatch_packet {:#x}", *packet_id);
+  switch (*packet_id) {
+    ARES_DISPATCH_PACKET_CASE(CH_ENTER);
+    ARES_DISPATCH_PACKET_CASE(ARES_ZH_LOGIN_REQ);
+  default:
+    {
+      log()->error("Unexpected packet_id {:#x} for mono session while dispatching, disconnecting", *packet_id);
+      session_.close_gracefuly();
+      return;
+    }
+  }
+}
+
+auto ares::character::mono::state::log() const -> std::shared_ptr<spdlog::logger> {
+  return server_.log();
+}
+
+auto ares::character::mono::state::conf() const -> const config& {
+  return server_.conf();
 }

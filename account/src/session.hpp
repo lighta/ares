@@ -1,72 +1,62 @@
 #pragma once
 
-#include <array>
 #include <chrono>
-#include <memory>
-
-#include <spdlog/spdlog.h>
+#include <variant>
 
 #include <ares/network>
-#include <ares/packets>
 
-#include "predeclare.hpp"
-
-#include "recv_handler.hpp"
-#include "send_handler.hpp"
-
-#include "state.hpp"
+#include "mono/state.hpp"
+#include "client/state.hpp"
+#include "character_server/state.hpp"
 
 namespace ares {
   namespace account {
-    struct session : ares::network::session<session>, std::enable_shared_from_this<session> {
+    struct server;
+    
+    struct session : ares::network::session<session, server>, std::enable_shared_from_this<session> {
 
-
-      struct inactivity_timer_handler : ares::network::handler::asio::base<inactivity_timer_handler, session> {
-        using ares::network::handler::asio::base<inactivity_timer_handler, session>::base;
-        void operator()(const boost::system::error_code& ec);
-      };
-
-      friend struct recv_handler;
-      friend struct send_handler;
+      using state_variant = std::variant<mono::state, client::state, character_server::state>;
       
-      // Needed to allow changing of state type
-      friend struct mono::packet_handler<ares::packet::CA_SSO_LOGIN_REQ>;
-      friend struct mono::packet_handler<ares::packet::ATHENA_HA_LOGIN_REQ>;
-      
-      session(server& server, std::shared_ptr<boost::asio::ip::tcp::socket> socket);
-      
-      void remove_from_server();
-      void defuse_asio();
-      void on_disconnect();
+      session(ares::account::server& serv,
+              const std::optional<asio::ip::tcp::endpoint> connect_ep,
+              std::shared_ptr<asio::ip::tcp::socket> socket,
+              const std::chrono::seconds idle_timer_timeout);
 
-      void on_open();
-      void before_close();
-      void on_connection_reset();
-      void on_eof();
-      void on_socket_error();
-      void on_operation_aborted();
-      
-      void on_inactivity_timer();
-      void reset_inactivity_timer();
+      state_variant& variant();
 
-      state_variant_type& state_variant();
-
-      bool is_char_server() const;
-      char_server::state& as_char_server();
-      bool is_client() const;
-      client::state& as_client();
       bool is_mono() const;
       mono::state& as_mono();
+      bool is_char_server() const;
+      character_server::state& as_char_server();
+      bool is_client() const;
+      client::state& as_client();
 
-      recv_handler make_recv_handler();
-      send_handler make_send_handler();
+      // Session handlers
+      void on_connect();
+      void on_connection_reset();
+      void on_operation_aborted();
+      void on_eof();
+      void on_socket_error();
+      void defuse_asio();
+      
+      std::tuple<size_t, size_t, size_t> packet_sizes(uint16_t& packet_id);
+      void dispatch_packet(std::shared_ptr<std::byte[]> buf);
+
     private:
-      server& server_;
-      state_variant_type state_;
-
-      std::chrono::seconds inactivity_timeout_{120};
+      friend struct mono::packet_handler<packet::current<packet::ARES_HA_LOGIN_REQ>>;
+      
+      state_variant session_state_;
     };
 
-    using session_ptr = std::shared_ptr<session>;
+    inline bool operator<(const std::weak_ptr<session>& lhs,
+                          const std::weak_ptr<session>& rhs) {
+      auto l = lhs.lock();
+      auto r = rhs.lock();
+      if (l && r) return l->id() < r->id();
+      if (l && !r) return false;
+      if (!l && r) return true;
+      return false;
+    }
+
   }
 }

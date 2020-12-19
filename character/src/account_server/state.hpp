@@ -1,42 +1,48 @@
 #pragma once
 
-#include <spdlog/spdlog.h>
-
 #include <ares/network>
+#include <ares/packets>
 
-#include "../predeclare.hpp"
-
-#include "timers.hpp"
+#include "../config.hpp"
 
 namespace ares {
   namespace character {
+    struct server;
+    struct session;
+    
     namespace account_server {
       struct state {
-        state(std::shared_ptr<spdlog::logger> log, server& serv, session& sess);
+        state(server& serv, session& sess);
+        ~state();
 
-        // Interface with character::session
-        void on_open();
-        void before_close();
+        void on_connect();
         void on_connection_reset();
+        void on_operation_aborted();
         void on_eof();
         void on_socket_error();
-        void on_operation_aborted();
-        size_t dispatch(const uint16_t PacketType);
-
         void defuse_asio();
 
+        std::tuple<size_t, size_t, size_t> packet_sizes(const uint16_t packet_id);
+        void dispatch_packet(std::shared_ptr<std::byte[]> buf);
+
+        std::shared_ptr<spdlog::logger> log() const;
+        const config& conf() const;
+
+        void reset_ping_account_server_timer();
       private:
-        std::shared_ptr<spdlog::logger> log_;
         server& server_;
         session& session_;
 
       public:
-        timer::reconnect reconnect_timer;
-        timer::send_aids send_aids_timer;
-        timer::send_user_count send_user_count_timer;
-        timer::ping_request ping_request_timer;
-        timer::ping_timeout ping_timeout_timer;
+        std::shared_ptr<asio::steady_timer> ping_account_server_timer_;
       };
+      
+      ARES_DECLARE_PACKET_HANDLER_TEMPLATE();
+
+      ARES_PACKET_HANDLER(ARES_AH_LOGIN_RESULT);
+      ARES_PACKET_HANDLER(ARES_AH_PING_ACK);
+      ARES_PACKET_HANDLER(ARES_AH_ACCOUNT_AUTH_RESULT);
+      ARES_PACKET_HANDLER(ARES_AH_KICK_ACCOUNT);
     }
   }
 }

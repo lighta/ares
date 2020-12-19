@@ -1,40 +1,50 @@
 #pragma once
 
-#include <spdlog/spdlog.h>
-
 #include <ares/network>
+#include <ares/packets>
 
-#include "../predeclare.hpp"
-
-#include "timers.hpp"
+#include "../config.hpp"
 
 namespace ares {
   namespace zone {
+    struct server;
+    struct session;
+    
     namespace character_server {
       struct state {
-        state(std::shared_ptr<spdlog::logger> log, server& serv, session& sess);
+        state(zone::server& serv, session& sess);
 
-        // Interface with zone::session
-        void on_open();
-        void before_close();
+        void on_connect();
         void on_connection_reset();
+        void on_operation_aborted();
         void on_eof();
         void on_socket_error();
-        void on_operation_aborted();
-        size_t dispatch(const uint16_t PacketType);
-
         void defuse_asio();
 
+        std::tuple<size_t, size_t, size_t> packet_sizes(const uint16_t packet_id);
+        void dispatch_packet(std::shared_ptr<std::byte[]> buf);
+
+        std::shared_ptr<spdlog::logger> log() const;
+        const config& conf() const;
+        
+        void reset_ping_character_server_timer();
       private:
-        std::shared_ptr<spdlog::logger> log_;
         server& server_;
         session& session_;
 
       public:
-        timer::reconnect reconnect_timer;
-        timer::ping_request ping_request_timer;
-        timer::ping_timeout ping_timeout_timer;
+        std::shared_ptr<asio::steady_timer> ping_character_server_timer_;
+
       };
+
+      ARES_DECLARE_PACKET_HANDLER_TEMPLATE();
+      
+      ARES_PACKET_HANDLER(ARES_HZ_LOGIN_RESULT);
+      ARES_PACKET_HANDLER(ARES_HZ_PRIVATE_MSG_NAME);
+      ARES_PACKET_HANDLER(ARES_HZ_PING_ACK);
+      ARES_PACKET_HANDLER(ARES_HZ_MAP_IDS);
+      ARES_PACKET_HANDLER(ARES_HZ_CHAR_AUTH_RESULT);
+
     }
   }
 }

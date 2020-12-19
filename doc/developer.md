@@ -9,7 +9,7 @@ The packet configuration is statically compiled (following Athena's path)
 # Ares server development architecture
 Ares codebase is C++17 under CMake project management potentially targeted
 to multiple deployment platforms. The project is based around asynchronous
-architecture using Boost ASIO.
+architecture using ASIO library.
 
 ## Build dependencies
 - CMake (Should be 3.8.2 or above for future C++17 config flags comaptibility)
@@ -17,8 +17,10 @@ architecture using Boost ASIO.
 - spdlog (included as git submodule)
 - Catch (for tests, included as git submodule)
 - Nlohmann JSON (for configuration files, included as git submodule)
-- Boost (for ASIO, probably will migrate to header-only ASIO version)
-- libpqxx (to communicate with Postgres)
+- Asio (included as git submodule)
+- libpqxx (to communicate with Postgres). Tested with version 5.1. The 4.0 branch
+will probably work, but only if it is recent enough (source code newer than at least
+Mar 24, 2012 (?)) to have C++17 deprecation fixes.
 
 ### Structure
 #### Common subsystem
@@ -257,7 +259,7 @@ private:
 
 
 # Naming convention consistency
-Names (in general) throughout the project are chosen from Athena server, but are
+Names in general are chosen from Athena server, but
 are replaced with original server's names if known. For example, packet length field in
 dynamic packets is called PacketLength and the server process called map server in
 Athena is called zone server. This naming convention should be sticked to and
@@ -273,7 +275,10 @@ consistency"), and since the original server does not seem to follow any
 coding standards at all in this regard, some identifiers violating the naming
 rules can be seen.
 
-Given the potential loads, some rules are observed when choosing C++ coding
-paths:
+Considering the potential loads and clean C++ programming techniques,
+some rules are observed when choosing C++ coding paths:
  - No RTTI-based techinques are allowed, like dynamic polymorphism, unless strictly needed
  - Memory allocations should be kept to minimum
+ - No dangerous C preprocessor macros unless strictly needed. C macros are used when
+ there's no C++ way of achieving the same thing, i.e. creating code that consciously cross
+ the boundaries of type system. No #ifdefs.

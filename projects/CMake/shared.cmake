@@ -1,10 +1,9 @@
 option(LOG_TRACE "Enable trace in spdlog" OFF)
 
-set(ARES_COMPILE_DEFINITIONS "")
-set(ARES_PACKET_VER "base" CACHE STRING "Sets the PACKETVER define of the servers." )
+set(ARES_COMPILE_DEFINITIONS "ASIO_STANDALONE")
 
-if (ARES_PACKET_VER)
-  set(ARES_COMPILE_DEFINITIONS ${ARES_COMPILE_DEFINITIONS} "ARES_PACKET_VER=${ARES_PACKET_VER}")
+if (ARES_PACKET_SET)
+  set(ARES_COMPILE_DEFINITIONS ${ARES_COMPILE_DEFINITIONS} "ARES_PACKET_SET=${ARES_PACKET_SET}")
 endif()  
 
 if (LOG_TRACE)
@@ -13,34 +12,39 @@ if (LOG_TRACE)
 else()
   message("Trace log macro is off")
 endif()
-  
-find_package(Boost 1.57.0 REQUIRED system)
-if(NOT Boost_FOUND)
-  message(FATAL_ERROR "Could not find boost. Try setting BOOST_INCLUDEDIR and BOOST_LIBRARYDIR. See https://cmake.org/cmake/help/v3.0/module/FindBoost.html for more info.")
-endif()
-set(ARES_INCLUDE_DIRECTORIES ${ARES_INCLUDE_DIRECTORIES} ${Boost_INCLUDE_DIRS})
-set(ARES_LINK_LIBRARIES ${ARES_LINK_LIBRARIES} ${Boost_SYSTEM_LIBRARY})
 
 find_package(Threads REQUIRED)
 set(ARES_LINK_LIBRARIES ${ARES_LINK_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 
-include("${ARES_DIR}/projects/CMake/libpq.cmake")
 include("${ARES_DIR}/projects/CMake/libpqxx.cmake")
+include("${ARES_DIR}/projects/CMake/libpq.cmake")
+include("${ARES_DIR}/projects/CMake/zlib.cmake")
 
 if (WIN32)
+  include("${ARES_DIR}/projects/CMake/winver.cmake")
   if (MINGW)
-    set(ARES_COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall -Wextra -Werror -Wunused")
+    set(ARES_COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror -Wunused")
   elseif(MSVC)
-    set(ARES_COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -std:c++latest")
+    set(ARES_COMPILE_FLAGS "${CMAKE_CXX_FLAGS} ")
+    set(ARES_COMPILE_DEFINITIONS ${ARES_COMPILE_DEFINITIONS}
+                                 "_SILENCE_CXX17_ALLOCATOR_VOID_DEPRECATION_WARNING"
+                                 "_SILENCE_CXX17_OLD_ALLOCATOR_MEMBERS_DEPRECATION_WARNING"
+                                 "_SILENCE_CXX17_RESULT_OF_DEPRECATION_WARNING" )
   endif()
-  set(ARES_COMPILE_DEFINITIONS "${ARES_COMPILE_DEFINITIONS}; NOMINMAX")  
+  set(ARES_COMPILE_DEFINITIONS ${ARES_COMPILE_DEFINITIONS} "NOMINMAX")
 else()
-  set(ARES_COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall -Wextra -Werror -Wunused")
+  set(ARES_COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror -Wunused -Wno-unused-private-field")
+  set(ARES_LINK_LIBRARIES ${ARES_LINK_LIBRARIES} stdc++fs)
 endif()
 
-set(ARES_INCLUDE_DIRECTORIES ${ARES_INCLUDE_DIRECTORIES} ${ARES_POSTGRES_INCLUDE_DIRS})
-set(ARES_LINK_LIBRARIES ${ARES_LINK_LIBRARIES} ${ARES_POSTGRES_LIBS})
-    
+set(ARES_INCLUDE_DIRECTORIES ${ARES_INCLUDE_DIRECTORIES} ${ARES_POSTGRES_INCLUDE_DIRS} ${ZLIB_INCLUDE_DIRS})
+set(ARES_LINK_LIBRARIES ${ARES_LINK_LIBRARIES} ${ARES_POSTGRES_LIBS} ${ZLIB_LIBRARIES})
+
+include("${ARES_DIR}/projects/CMake/platform_checks.cmake")
+
+message("Ares compile definitions: ${ARES_COMPILE_DEFINITIONS}")
+message("Ares compile flags: ${ARES_COMPILE_FLAGS}")
 message("Ares include directories: ${ARES_INCLUDE_DIRECTORIES}")
-message("Ares link libraries: ${ARES_LINK_LIBRARIES}")
-message("Ares compile definitins: ${ARES_COMPILE_DEFINITIONS}")
+message("Ares server link libraries: ${ARES_LINK_LIBRARIES}")
+
+

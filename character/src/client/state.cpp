@@ -1,50 +1,78 @@
 #include "state.hpp"
-
-#include <ares/packets>
-#include <ares/network>
-
 #include "../server.hpp"
-#include "packet_handlers.hpp"
 
-ares::character::client::state::state(std::shared_ptr<spdlog::logger> log, server& serv, session& sess) :
-  log_(log),
+ares::character::client::state::state(character::server& serv, session& sess) :
   server_(serv),
   session_(sess) {
   }
 
-void ares::character::client::state::defuse_asio() {
+ares::character::client::state::state(const mono::state& mono_state) :
+  auth_code1(mono_state.auth_code1),
+  auth_code2(mono_state.auth_code2),
+  server_(mono_state.server_),
+  session_(mono_state.session_) {
 }
 
-void ares::character::client::state::on_open() {
-  SPDLOG_TRACE(log_, "client::state on_open");
+ares::character::client::state::~state() {
+  SPDLOG_TRACE(log(), "Destructing client state for session {}", session_.id());
 }
 
-void ares::character::client::state::before_close() {
-  SPDLOG_TRACE(log_, "client::state before_close");
+void ares::character::client::state::on_connect() {
 }
 
 void ares::character::client::state::on_connection_reset() {
-  SPDLOG_TRACE(log_, "client::state on_connection_reset");
-}
-
-void ares::character::client::state::on_eof() {
-  SPDLOG_TRACE(log_, "client::state on_eof");
-}
-
-void ares::character::client::state::on_socket_error() {
-  SPDLOG_TRACE(log_, "client::state on_socket_error");
+  session_.close_abruptly();
 }
 
 void ares::character::client::state::on_operation_aborted() {
-  SPDLOG_TRACE(log_, "client::state on_operation_aborted");
+  session_.close_abruptly();
 }
 
-size_t ares::character::client::state::dispatch(const uint16_t PacketType) {
-  SPDLOG_TRACE(log_, "client::state::dispatch() switching on PacketType = {0:#x}", PacketType);
-  switch (PacketType) {
+void ares::character::client::state::on_eof() {
+  SPDLOG_TRACE(log(), "Client session {} EOF", session_.id());
+}
+
+void ares::character::client::state::on_socket_error() {
+  session_.close_abruptly();
+}
+
+void ares::character::client::state::defuse_asio() {
+}
+
+auto ares::character::client::state::packet_sizes(const uint16_t packet_id) -> std::tuple<size_t, size_t, size_t> {
+  switch (packet_id) {
+    ARES_PACKET_SIZES_CASE(PING);
+    ARES_PACKET_SIZES_CASE(CH_MAKE_CHAR::no_stats);
+    ARES_PACKET_SIZES_CASE(CH_SELECT_CHAR);
+    ARES_PACKET_SIZES_CASE(CH_CHAR_PAGE_REQ);
+  default:
+    { 
+      log()->error("Unexpected packet_id {:#x} for client session while getting packet sizes", packet_id);
+      return std::tuple<size_t, size_t, size_t>(0, 0, 0);
+    }
   }
-  SPDLOG_TRACE(log_, "client::state::dispatch() done");
-  log_->error("Unexpected PacketType {0:#x} for client::state session", PacketType);
-  throw ares::network::terminate_session();
 }
 
+void ares::character::client::state::dispatch_packet(std::shared_ptr<std::byte[]> buf) {
+  uint16_t* packet_id = reinterpret_cast<uint16_t*>(buf.get());
+  switch (*packet_id) {
+    ARES_DISPATCH_PACKET_CASE(PING);
+    ARES_DISPATCH_PACKET_CASE(CH_MAKE_CHAR::no_stats);
+    ARES_DISPATCH_PACKET_CASE(CH_SELECT_CHAR);
+    ARES_DISPATCH_PACKET_CASE(CH_CHAR_PAGE_REQ);
+  default:
+    {
+      log()->error("Unexpected packet_id {:#x} for client session while dispatching, disconnecting", *packet_id);
+      session_.close_gracefuly();
+      return;
+    }
+  }
+}
+
+auto ares::character::client::state::log() const -> std::shared_ptr<spdlog::logger> {
+  return server_.log();
+}
+
+auto ares::character::client::state::conf() const -> const config& {
+  return server_.conf();
+}

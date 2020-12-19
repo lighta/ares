@@ -1,33 +1,65 @@
 #pragma once
 
-#include <condition_variable>
 #include <memory>
 #include <mutex>
-#include <optional>
 
 #include <pqxx/pqxx>
 #include <spdlog/spdlog.h>
 
-#include "pqxx_traits.hpp"
-
 namespace ares {
-  template <typename Database>
-  struct database {
-  protected:
-    database(std::shared_ptr<spdlog::logger> log,
-             const std::string& dbname,
-             const std::string& host,
-             const uint16_t port,
-             const std::string& username,
-             const std::string& password);
+  namespace database {
+    struct db {
+      /* Constructor that connects to Postgresql database
+         \param log pointer to logger
+         \param dbname string containing database name
+         \param host string containing database server host
+         \param port TCP port database server is listening on
+         \param username database username
+         \param password database password
+      */
+      db(std::shared_ptr<spdlog::logger> log,
+         const std::string& dbname,
+         const std::string& host,
+         const uint16_t port,
+         const std::string& username,
+         const std::string& password);
 
-    void with_wait_lock(std::function<void()> f);
 
-    std::shared_ptr<spdlog::logger> log_;
-    std::condition_variable cv_;
-    bool ready_{true};
-    std::mutex mutex_;
-    std::unique_ptr<pqxx::connection> pqxx_conn_;
-    size_t max_retry_{10};
-  };
+      template <typename Transactor, typename... Args>
+      inline auto query(Args&&... args) -> typename Transactor::result_type {
+        typename Transactor::result_type rslt;
+        try {
+          Transactor t(rslt, std::forward<Args>(args)...);
+          pqxx_conn_->perform(t);
+        } catch (pqxx::failure& e) {
+          log_->error(e.what());
+          throw;
+        } catch (...) {
+          log_->error("Unknown exception while accessing database");
+          throw;
+        }
+        return rslt;
+      }
+
+      template <typename Transactor, typename... Args>
+      inline void exec(Args&&... args) {
+        try {
+          Transactor t(std::forward<Args>(args)...);
+          pqxx_conn_->perform(t);
+        } catch (pqxx::failure& e) {
+          log_->error(e.what());
+          throw;
+        } catch (...) {
+          log_->error("Unknown exception while accessing database");
+          throw;
+        }
+      }
+
+    private:
+      std::shared_ptr<spdlog::logger> log_;
+      std::unique_ptr<pqxx::connection> pqxx_conn_;
+      size_t max_retry_{10};
+    };
+
+  }
 }

@@ -1,54 +1,49 @@
-#include "packet_handlers.hpp"
-
-#include <ares/common>
-
 #include "state.hpp"
 #include "../server.hpp"
 #include "../client/state.hpp"
 
-void ares::character::mono::packet_handler<ares::packet::CH_ENTER>::operator()() {
+void ares::character::mono::packet_handler<ares::packet::current<ares::packet::CH_ENTER>>::operator()() {
   SPDLOG_TRACE(log(), "CH_ENTER: begin");
   log()->info("CH_ENTER request AID = {}, AuthCode = {}, userLevel = {}, clientType = {}, Sex = {}",
-              p_->AID(), p_->AuthCode(), p_->userLevel(), p_->clientType(), p_->Sex());
-  SPDLOG_TRACE(log(), "Sending back AID = {} in response to CH_ENTER", p_->AID());
-  const auto aid = p_->AID();
-  session_.copy_and_send(&aid, sizeof(aid));
-  SPDLOG_TRACE(log(), "CH_ENTER acquiring server lock");
-  std::lock_guard<std::mutex> lock(server_.mutex());
-  SPDLOG_TRACE(log(), "CH_ENTER acquiring server lock acquired");
-  auto found = server_.client_by_aid(p_->AID());
-  if (found &&
-      (p_->AuthCode() == found->as_client().auth_code1) &&
-      ((int32_t)p_->userLevel() == found->as_client().auth_code2)) {
-    from_zone_server(found);
+              p_->AID().to_string(), p_->AuthCode(), p_->userLevel(), p_->clientType(), p_->Sex());
+  if (p_->Sex() < 2) {
+    SPDLOG_TRACE(log(), "Sending back AID {} in response to CH_ENTER", p_->AID().to_string());
+    const auto aid = p_->AID();
+    session_.copy_and_send(&aid, sizeof(aid));
+
+    std::shared_ptr<session> found;
+    {
+      std::lock_guard<std::mutex> lock(server_.mutex());
+      found = server_.find_client_session(model::account_id(p_->AID()));
+    }
+  
+    if (found &&
+        (p_->AuthCode() == found->as_client().auth_code1) &&
+        ((int32_t)p_->userLevel() == found->as_client().auth_code2)) {
+      // TODO: from zone server
+    } else {
+      // Login from account server
+      SPDLOG_TRACE(log(), "Sending ATHENA_HA_AID_AUTH_REQ");
+      uint32_t request_id{0};
+      {
+        std::lock_guard<std::mutex> lock(server_.mutex());
+        auto s = session_.shared_from_this();
+        request_id = server_.auth_requests->new_request(s);
+      }
+      state_.auth_code1 = p_->AuthCode();
+      state_.auth_code2 = p_->userLevel();
+
+      SPDLOG_TRACE(log(), "Account server existence check: {} {}", server_.account_server() != nullptr, request_id);
+      server_.account_server()->emplace_and_send<packet::current<packet::ARES_HA_ACCOUNT_AUTH_REQ>>(request_id,
+                                                                                                    model::account_id(p_->AID()),
+                                                                                                    state_.auth_code1,
+                                                                                                    state_.auth_code2
+                                                                                                    );
+    }
   } else {
-    from_account_server();
+    log()->warn("Unexpected sex {} in CH_ENTER packet from AID {}, closing session", p_->Sex(), p_->AID().to_string());
+    session_.close_gracefuly();
   }
   SPDLOG_TRACE(log(), "CH_ENTER: end");
-}
-
-void ares::character::mono::packet_handler<ares::packet::CH_ENTER>::from_zone_server(session_ptr) {
-  SPDLOG_TRACE(log(), "CH_ENTER - transforming from existing session {:#x}", (uintptr_t)existing_session.get());
-  // TODO:
-}
-
-void ares::character::mono::packet_handler<ares::packet::CH_ENTER>::from_account_server() {
-  SPDLOG_TRACE(log(), "Sending ATHENA_HA_AID_AUTH_REQ");
-  server_.account_server()->emplace_and_send<packet::ATHENA_HA_AID_AUTH_REQ>(p_->AID(),
-                                                                             p_->AuthCode(),
-                                                                             (int32_t)p_->userLevel(),
-                                                                             p_->Sex(),
-                                                                             0,
-                                                                             random_int32::get());
-}
-
-void ares::character::mono::packet_handler<ares::packet::CH_ENTER>::refuse(const uint8_t error_code) {
-  session_.emplace_and_send<packet::HC_REFUSE_ENTER>(error_code);
-  throw ares::network::terminate_session();
-}
-
-void ares::character::mono::packet_handler<ares::packet::CH_ENTER>::notify_ban(const uint8_t error_code) {
-  session_.emplace_and_send<packet::SC_NOTIFY_BAN>(error_code); 
-  throw ares::network::terminate_session();
 }
 

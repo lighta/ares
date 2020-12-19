@@ -1,12 +1,16 @@
 #include "config.hpp"
 
+#include <sstream>
+
 ares::zone::config::config(std::shared_ptr<spdlog::logger> log,
-                              std::shared_ptr<boost::asio::io_service> io_service,
+                              std::shared_ptr<asio::io_context> io_context,
                               std::optional<std::string> first_config_file) :
-  ares::config(log, io_service, "zone_server", first_config_file) {
+  ares::config(log, io_context, "zone_server", first_config_file) {
   postgres = load_with_catch_as<postgres_config>("database", json_);
   listen_ipv4 = load_with_catch_as<endpoints_config>("listen_ipv4", json_);
   load_character_server();
+  load_network_threads();
+  load_obfuscation_key();
   validate();
 }
 
@@ -25,7 +29,6 @@ void ares::zone::config::validate() {
     throw std::runtime_error(msg);
   }
 }
-
 
 void ares::zone::config::load_character_server() {
   auto load_character_server = [this] () {
@@ -57,4 +60,37 @@ void ares::zone::config::load_character_server() {
     }
   };
   with_catch("character_server", load_character_server);
+}
+
+void ares::zone::config::load_network_threads() {
+  auto load_network_threads = [this] () {
+    auto j_network_threads = json_.find("network_threads");
+    if ((j_network_threads != json_.end() && (j_network_threads->is_number()))) {
+      network_threads.emplace(*j_network_threads);
+    }
+  };
+  with_catch("network_threads", load_network_threads);
+}
+
+void ares::zone::config::load_obfuscation_key() {
+  auto load_obfuscation_key = [this] () {
+    auto j_key = json_.find("obfuscation_key");
+    if (j_key != json_.end()) {
+      if ((j_key->is_array()) && (j_key->size() == 3)) {
+        uint32_t k[3];
+        for (size_t i = 0; i < 3; ++i) {
+          std::stringstream ss;
+          ss << std::hex << (*j_key)[i].get<std::string>();
+          ss >> k[i]; 
+        }
+
+        obfuscation_key.emplace(std::make_tuple(k[0], k[1], k[2]));
+        log_->info("New sessions will be initialized with obfuscation key: {:x}, {:x}, {:x}",
+                   std::get<0>(*obfuscation_key), std::get<1>(*obfuscation_key), std::get<2>(*obfuscation_key)); 
+      } else {
+        log_->warn("Packet header obfuscation key should be an array of 3 itegers");
+      }
+    }
+  };
+  with_catch("obfuscation_key", load_obfuscation_key);
 }

@@ -1,28 +1,25 @@
-#include <boost/asio.hpp>
-#include <spdlog/spdlog.h>
+#include <iostream>
 
 #include "server.hpp"
 
 int main() {
   // TODO: command line options: log destination, log level, config filename, foreground/background
-  auto log = spdlog::stdout_color_mt("character");
-  log->set_level(spdlog::level::trace);
-  log->info("Starting");
-
-  auto io_service = std::make_shared<boost::asio::io_service>();
   try {
-    ares::character::config conf(log, io_service, std::optional<std::string>());
-    ares::character::server serv(log, io_service, conf, 2);
-    serv.start();
-    while (true) {
-      std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
+    auto log = spdlog::stdout_color_mt("character");
+    log->set_level(spdlog::level::trace);
+    auto io_context = std::make_shared<asio::io_context>();
+
+    auto conf = std::make_shared<ares::character::config>(log, io_context, std::optional<std::string>{});
+    auto s = std::make_shared<ares::character::server>(log, io_context, *conf);
+    s->start();
+    s->run();
+    
   } catch (const std::runtime_error e) {
-    log->error("main: terminated with runtime error {}", e.what());
+    std::cerr << "main: terminated with runtime error {} " << e.what() << std::endl;
   } catch (...) {
-    log->error("main: terminated with unknown exception");
+    std::cerr << "main: terminated with unknown exception" << std::endl;
     throw;
   }
-  log->info("Terminating");
   return 0;
 }
+

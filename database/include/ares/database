@@ -1,4 +1,6 @@
 #pragma once
 
-#include "../src/database.hpp"
-#include "../src/definitions/database.hpp"
+#include "../../src/database.hpp"
+#include "../../src/accounts.hpp"
+#include "../../src/characters.hpp"
+#include "../../src/maps.hpp"
